@@ -1,48 +1,58 @@
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
 from typing import List
-from app.schemas.patient import PatientCreate, PatientOut, PatientUpdate
+from app.schemas.patient_schema import PatientCreate, PatientUpdate, PatientResponse
+from app.db import models
+from app.db.database import SessionLocal
 
 router = APIRouter(
     prefix="/patients",
     tags=["Patients"]
 )
-fake_patients_db = []
 
-@router.post("/", response_model=PatientOut, status_code=status.HTTP_201_CREATED)
-def create_patient(patient: PatientCreate):
-    new_id = len(fake_patients_db) + 1
-    new_patient = {"id": new_id, **patient.dict()}
-    fake_patients_db.append(new_patient)
+# Dependency: create & close DB session per request
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+@router.post("/", response_model=PatientResponse, status_code=status.HTTP_201_CREATED)
+def create_patient(patient: PatientCreate, db: Session = Depends(get_db)):
+    new_patient = models.Patient(**patient.dict())
+    db.add(new_patient)
+    db.commit()
+    db.refresh(new_patient)
     return new_patient
 
+@router.get("/", response_model=List[PatientResponse])
+def get_all_patients(db: Session = Depends(get_db)):
+    return db.query(models.Patient).all()
 
-@router.get("/", response_model=List[PatientOut])
-def get_all_patients():
-    return fake_patients_db
+@router.get("/{patient_id}", response_model=PatientResponse)
+def get_patient(patient_id: int, db: Session = Depends(get_db)):
+    patient = db.query(models.Patient).filter(models.Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    return patient
 
-
-@router.get("/{patient_id}", response_model=PatientOut)
-def get_patient(patient_id: int):
-    for patient in fake_patients_db:
-        if patient["id"] == patient_id:
-            return patient
-    raise HTTPException(status_code=404, detail="Patient not found")
-
-
-@router.put("/{patient_id}", response_model=PatientOut)
-def update_patient(patient_id: int, updated: PatientUpdate):
-    for patient in fake_patients_db:
-        if patient["id"] == patient_id:
-            for key, value in updated.dict(exclude_unset=True).items():
-                patient[key] = value
-            return patient
-    raise HTTPException(status_code=404, detail="Patient not found")
-
+@router.put("/{patient_id}", response_model=PatientResponse)
+def update_patient(patient_id: int, updated: PatientUpdate, db: Session = Depends(get_db)):
+    patient = db.query(models.Patient).filter(models.Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    for key, value in updated.dict(exclude_unset=True).items():
+        setattr(patient, key, value)
+    db.commit()
+    db.refresh(patient)
+    return patient
 
 @router.delete("/{patient_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_patient(patient_id: int):
-    for i, patient in enumerate(fake_patients_db):
-        if patient["id"] == patient_id:
-            fake_patients_db.pop(i)
-            return
-    raise HTTPException(status_code=404, detail="Patient not found")
+def delete_patient(patient_id: int, db: Session = Depends(get_db)):
+    patient = db.query(models.Patient).filter(models.Patient.id == patient_id).first()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    db.delete(patient)
+    db.commit()
+    return
