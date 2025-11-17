@@ -1,3 +1,4 @@
+# app/schemas/record.py
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -13,5 +14,4 @@ class RecordOut(RecordBase):
     id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}

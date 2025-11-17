@@ -1,23 +1,27 @@
+# app/main.py
 from fastapi import FastAPI
 from dotenv import load_dotenv
+import asyncio
+
+from app.db.database import create_tables
+from app.routers import patients, doctors, appointments, records
 
 load_dotenv()
 
-from app.db import models
-from app.db.database import engine
-from app.routers import patients, doctors, appointments, records
-
-# Auto-create tables in dev (remove in production)
-models.Base.metadata.create_all(bind=engine)
-
 app = FastAPI(title="Healthcare Management API", version="1.0.0")
 
-# Register routers
+@app.on_event("startup")
+async def startup_event():
+    try:
+        await create_tables()
+    except Exception:
+        raise RuntimeError("Failed to initialize database tables.")
+
 app.include_router(patients.router)
 app.include_router(doctors.router)
 app.include_router(appointments.router)
 app.include_router(records.router)
 
 @app.get("/")
-def health():
+async def health():
     return {"status": "ok"}

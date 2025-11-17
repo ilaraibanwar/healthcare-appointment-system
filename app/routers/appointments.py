@@ -1,18 +1,22 @@
+# app/routers/appointments.py
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from typing import List
 
 from app.db import models
+from app.db.database import get_session
 from app.schemas.appointment import AppointmentCreate, AppointmentOut
-from app.utils.dependencies import get_db
 
 router = APIRouter(prefix="/appointments", tags=["Appointments"])
 
 @router.post("/", response_model=AppointmentOut, status_code=status.HTTP_201_CREATED)
-def create_appointment(payload: AppointmentCreate, db: Session = Depends(get_db)):
-    # Validate patient and doctor exist
-    patient = db.query(models.Patient).filter(models.Patient.id == payload.patient_id).first()
-    doctor = db.query(models.Doctor).filter(models.Doctor.id == payload.doctor_id).first()
+async def create_appointment(payload: AppointmentCreate, session: AsyncSession = Depends(get_session)):
+    result_patient = await session.execute(select(models.Patient).where(models.Patient.id == payload.patient_id))
+    patient = result_patient.scalar_one_or_none()
+
+    result_doctor = await session.execute(select(models.Doctor).where(models.Doctor.id == payload.doctor_id))
+    doctor = result_doctor.scalar_one_or_none()
 
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -21,28 +25,42 @@ def create_appointment(payload: AppointmentCreate, db: Session = Depends(get_db)
         raise HTTPException(status_code=404, detail="Doctor not found")
 
     appointment = models.Appointment(**payload.dict())
-    db.add(appointment)
-    db.commit()
-    db.refresh(appointment)
+    session.add(appointment)
+
+    try:
+        await session.flush()
+        await session.refresh(appointment)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to create appointment")
+
     return appointment
 
 
 @router.get("/", response_model=List[AppointmentOut])
-def list_appointments(db: Session = Depends(get_db)):
-    return db.query(models.Appointment).all()
+async def list_appointments(session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(models.Appointment))
+    return result.scalars().all()
 
 
 @router.get("/{appointment_id}", response_model=AppointmentOut)
-def get_appointment(appointment_id: int, db: Session = Depends(get_db)):
-    appointment = db.query(models.Appointment).filter(models.Appointment.id == appointment_id).first()
+async def get_appointment(appointment_id: int, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(models.Appointment).where(models.Appointment.id == appointment_id)
+    )
+    appointment = result.scalar_one_or_none()
+
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
+
     return appointment
 
 
 @router.put("/{appointment_id}", response_model=AppointmentOut)
-def update_appointment(appointment_id: int, payload: AppointmentCreate, db: Session = Depends(get_db)):
-    appointment = db.query(models.Appointment).filter(models.Appointment.id == appointment_id).first()
+async def update_appointment(appointment_id: int, payload: AppointmentCreate, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(models.Appointment).where(models.Appointment.id == appointment_id)
+    )
+    appointment = result.scalar_one_or_none()
 
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
@@ -50,17 +68,29 @@ def update_appointment(appointment_id: int, payload: AppointmentCreate, db: Sess
     for k, v in payload.dict().items():
         setattr(appointment, k, v)
 
-    db.commit()
-    db.refresh(appointment)
+    try:
+        await session.flush()
+        await session.refresh(appointment)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to update appointment")
+
     return appointment
 
 
 @router.delete("/{appointment_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_appointment(appointment_id: int, db: Session = Depends(get_db)):
-    appointment = db.query(models.Appointment).filter(models.Appointment.id == appointment_id).first()
+async def delete_appointment(appointment_id: int, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(
+        select(models.Appointment).where(models.Appointment.id == appointment_id)
+    )
+    appointment = result.scalar_one_or_none()
+
     if not appointment:
         raise HTTPException(status_code=404, detail="Appointment not found")
 
-    db.delete(appointment)
-    db.commit()
+    try:
+        await session.delete(appointment)
+        await session.flush()
+    except Exception:
+        raise HTTPException(status_code=500, detail="Failed to delete appointment")
+
     return None

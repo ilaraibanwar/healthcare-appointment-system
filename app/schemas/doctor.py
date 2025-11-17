@@ -1,3 +1,4 @@
+# app/schemas/doctor.py
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -12,5 +13,4 @@ class DoctorOut(DoctorBase):
     id: int
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}

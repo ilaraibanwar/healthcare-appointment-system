@@ -1,3 +1,4 @@
+# app/schemas/appointment.py
 from pydantic import BaseModel
 from datetime import datetime
 
@@ -15,5 +16,4 @@ class AppointmentOut(AppointmentBase):
     status: str
     created_at: datetime
 
-    class Config:
-        orm_mode = True
+    model_config = {"from_attributes": True}
